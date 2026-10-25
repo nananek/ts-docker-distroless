@@ -73,4 +73,8 @@ COPY --chown=0:0 seccomp/tailscale.json /etc/tailscale/seccomp.json
 # supported.
 USER 0:0
 
-ENTRYPOINT ["/usr/local/bin/sandbox-exec", "/usr/local/bin/containerboot"]
+# Keep the same command-override semantics as the official image: the wrapper
+# is the entrypoint and containerboot is only the default command, so
+# `docker run IMAGE tailscale ...` or `... tailscaled ...` still works.
+ENTRYPOINT ["/usr/local/bin/sandbox-exec"]
+CMD ["/usr/local/bin/containerboot"]

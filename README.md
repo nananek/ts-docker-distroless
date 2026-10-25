@@ -94,6 +94,27 @@ Compose は `compose.yaml` を参照。アプリを sidecar にする場合は�
 `TS_AUTHKEY` は環境変数なので `docker inspect` や `/proc/1/environ` から見える。
 短命の auth key を使う。
 
+## 公式イメージとの違い
+
+`/var/lib/tailscale` をマウントする一般的な userspace 構成は、そのまま置き換えられる。
+`containerboot` と状態ファイルの形式は公式イメージと同じで、既存の state も読める。
+`TS_STATE_DIR` はこのイメージでは `/var/lib/tailscale` を既定にしている
+(公式は未設定なら ephemeral)。既存の設定で `TS_STATE_DIR` を指定しているなら
+挙動は同じ。
+
+そのまま置き換えられないもの:
+
+- `TS_USERSPACE=false` の TUN/kernel モード。distroless に iptables/iproute2 が
+  ないため、netfilter 設定ができない。
+- `docker exec ... sh -c ...`。shell がない。`docker exec ... tailscale status`
+  のようにバイナリを直接指定する。
+- `tailscale ssh`。意図的に無効化している。
+- `/dev/net/tun` を前提にする subnet router / exit node 構成。
+
+コマンドの上書きは公式と同じように動く。`docker run IMAGE tailscale version` や
+`docker run IMAGE tailscaled --tun=userspace-networking ...` は `sandbox-exec`
+経由で実行される。
+
 ## ビルド
 
 ```bash
