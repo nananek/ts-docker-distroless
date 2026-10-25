@@ -1,0 +1,29 @@
+services:
+  tailscale:
+    # Set IMAGE to your ghcr.io/<user>/ts-docker-distroless:nightly.
+    image: ${IMAGE:-ghcr.io/your-user/ts-docker-distroless:nightly}
+    container_name: tailscale
+    restart: unless-stopped
+
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY:?set TS_AUTHKEY}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_HOSTNAME: ${TS_HOSTNAME:-}
+
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+
+    # Userspace networking needs no capabilities. If you use `tailscale serve`
+    # on a port below 1024, add NET_BIND_SERVICE.
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+      - /var/run/tailscale:rw,noexec,nosuid,size=1m
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./seccomp/tailscale.json
+
+volumes:
+  tailscale-state:

@@ -1,0 +1,9 @@
+.git
+.github
+.gitignore
+.dockerignore
+README.md
+Makefile
+compose.yaml
+scripts
+test

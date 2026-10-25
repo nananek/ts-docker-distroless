@@ -1,0 +1,101 @@
+# Syscalls removed from every SCMP_ACT_ALLOW rule in seccomp/tailscale.json.
+#
+# Keep this list limited to syscalls that tailscaled does not need in this
+# image. The setreuid/setresuid family is defense in depth; the SSH-critical
+# setgroups/setuid/setgid are blocked by sandbox-exec, not by this profile
+# (see the note in the first section).
+#
+# One name per line. Lines starting with # and blank lines are ignored.
+
+# --- Tailscale SSH privilege drop -------------------------------------------
+# ssh/tailssh/incubator.go: doDropPrivileges() calls setgroups()
+# unconditionally, then setgid()/setuid() when the target uid/gid differs.
+# Root sessions call setgroups() too, so blocking it disables every session.
+#
+# setgroups/setgid/setuid are deliberately NOT in this file. runc installs a
+# custom seccomp profile before setupUser() when no-new-privileges is false, so
+# removing these three from the allowlist makes the container fail at startup
+# with EPERM. The image's sandbox-exec installs the same block after runc has
+# finished, so Tailscale SSH is still disabled.
+#
+# The remaining set*id calls are not used by runc's setupUser().
+#
+# If you intentionally add setgroups/setgid/setuid back, update
+# scripts/check-seccomp.sh too and always run with
+# --security-opt no-new-privileges:true.
+setreuid
+setreuid32
+setregid
+setregid32
+setresuid
+setresuid32
+setresgid
+setresgid32
+setfsuid
+setfsuid32
+setfsgid
+setfsgid32
+
+# --- Process inspection / injection ----------------------------------------
+ptrace
+process_vm_readv
+process_vm_writev
+kcmp
+pidfd_getfd
+process_madvise
+process_mrelease
+
+# --- Namespaces, mounts and filesystem handles -----------------------------
+mount
+umount
+umount2
+pivot_root
+chroot
+setns
+unshare
+open_tree
+move_mount
+fsopen
+fsconfig
+fsmount
+fspick
+mount_setattr
+name_to_handle_at
+open_by_handle_at
+
+# --- Kernel facilities tailscaled does not use -----------------------------
+bpf
+perf_event_open
+init_module
+finit_module
+delete_module
+kexec_load
+kexec_file_load
+reboot
+swapon
+swapoff
+acct
+iopl
+ioperm
+syslog
+quotactl
+quotactl_fd
+vhangup
+lookup_dcookie
+fanotify_init
+sethostname
+setdomainname
+settimeofday
+stime
+clock_settime
+clock_settime64
+clock_adjtime
+clock_adjtime64
+adjtimex
+personality
+
+# --- Device nodes ----------------------------------------------------------
+# Userspace networking does not create /dev/net/tun. Kernel/TUN mode is not
+# supported by this image anyway.
+mknod
+mknodat

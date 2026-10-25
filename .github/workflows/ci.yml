@@ -1,0 +1,53 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cmd/sandbox-exec/go.mod
+          cache-dependency-path: cmd/sandbox-exec/go.sum
+
+      - name: Static checks
+        run: |
+          set -euo pipefail
+          ./scripts/check-seccomp.sh
+          for script in scripts/*.sh; do
+            bash -n "$script"
+          done
+          (cd cmd/sandbox-exec && go vet ./... && go build -o /dev/null .)
+
+      - name: Resolve Tailscale nightly tag
+        id: vars
+        run: |
+          set -euo pipefail
+          tag="$(./scripts/latest-unstable-tag.sh)"
+          echo "tailscale_tag=$tag" >>"$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: ts-distroless:test
+          build-args: |
+            TAILSCALE_IMAGE=ghcr.io/tailscale/tailscale:${{ steps.vars.outputs.tailscale_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test
+        run: ./scripts/smoke-test.sh ts-distroless:test
