@@ -1,15 +1,16 @@
 # syntax=docker/dockerfile:1.7
 
-# BASE must be the image under test. It already contains sandbox-exec.
-ARG BASE
-ARG GOLANG_IMAGE=golang:1.27-alpine
-
-FROM ${GOLANG_IMAGE} AS build
+# The build context is prepared by scripts/smoke-test.sh: it contains main.go,
+# go.mod, and sandbox-exec copied out of the image under test. Building from
+# scratch avoids depending on the test runner's local image store.
+FROM golang:1.27-alpine AS build
 WORKDIR /src
+COPY go.mod ./
 COPY main.go .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /probe .
 
-FROM ${BASE}
+FROM scratch
+COPY sandbox-exec /usr/local/bin/sandbox-exec
 COPY --from=build /probe /probe
 ENV PROBE_MODE=ssh
 ENTRYPOINT ["/usr/local/bin/sandbox-exec", "/probe"]

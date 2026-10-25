@@ -1,9 +1,9 @@
 # tailscale-distroless
 
-Tailscale の nightly ビルドを `gcr.io/distroless/static-debian12` に載せ、
+Tailscale の nightly ビルドを `gcr.io/distroless/static` に載せ、
 ghcr.io へ毎日 push するイメージ。
 
-- base: `gcr.io/distroless/static-debian12` (shell なし)
+- base: `gcr.io/distroless/static` (shell なし)
 - Tailscale: 最新の `ghcr.io/tailscale/tailscale:unstable-vX.Y.Z`
 - root で実行する (nonroot 版はない)
 - Tailscale SSH は seccomp で開始できない

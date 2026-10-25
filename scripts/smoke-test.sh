@@ -7,10 +7,18 @@ image="${1:?usage: smoke-test.sh IMAGE}"
 seccomp_profile="$repo_root/seccomp/tailscale.json"
 probe_image="ts-distroless-seccomp-probe:test"
 container=""
+probe_dir=""
+probe_container=""
 
 cleanup() {
   if [[ -n "$container" ]]; then
     docker rm -f "$container" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$probe_container" ]]; then
+    docker rm -f "$probe_container" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$probe_dir" ]]; then
+    rm -rf "$probe_dir"
   fi
 }
 trap cleanup EXIT
@@ -33,10 +41,19 @@ grep -q 'sandbox-exec' <<<"$entrypoint" || {
 }
 
 echo "==> probe image"
-docker build \
-  --build-arg "BASE=$image" \
-  -t "$probe_image" \
-  "$repo_root/test/probe"
+# Build a scratch test image from the sandbox-exec binary inside the image
+# under test. This avoids relying on the runner's local image store being
+# visible to the buildx/builder being used for the probe build.
+probe_dir="$(mktemp -d)"
+cp "$repo_root/test/probe/Dockerfile" \
+   "$repo_root/test/probe/main.go" \
+   "$repo_root/test/probe/go.mod" \
+   "$probe_dir/"
+probe_container="$(docker create "$image")"
+docker cp "$probe_container:/usr/local/bin/sandbox-exec" "$probe_dir/sandbox-exec"
+docker rm "$probe_container" >/dev/null
+probe_container=""
+docker build -t "$probe_image" "$probe_dir"
 
 # Without either filter, the probe can drop privileges. This also proves that
 # the probe is actually testing something.

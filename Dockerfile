@@ -7,9 +7,11 @@
 # tag or it fails instead of silently using an old Tailscale.
 ARG TAILSCALE_IMAGE
 
-# Pinned so that a rebuild does not silently pick up a different distroless.
-# Bump together with the tag; the digest is for the multi-arch manifest.
-ARG DISTROLESS_IMAGE=gcr.io/distroless/static-debian12:latest@sha256:d75cdd72874d4790092fcb1b058493ecf6bb5bf2b2b897045b00ff01d91843f2
+# Pinned by digest so that a rebuild does not silently pick up a different
+# distroless. The plain "static" image tracks the current Debian release
+# (bookworm, trixie, ...); the binaries in this image are all static Go, so the
+# Debian version does not matter. Only the digest is pinned.
+ARG DISTROLESS_IMAGE=gcr.io/distroless/static@sha256:15f8637509792e05b97d83451b0b6ccfa4abd548f997e406ac1e72c87fe1fa78
 
 ARG GOLANG_IMAGE=golang:1.27-alpine
 
