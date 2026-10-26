@@ -51,7 +51,13 @@ RUN set -eux; \
       for bin in $bins; do ldd "$bin" 2>/dev/null || true; done; \
       for so in /usr/lib/*/xtables/*.so; do ldd "$so" 2>/dev/null || true; done; \
     } | awk '/=>/ {print $3} /^\// {print $1}' | sort -u | while read -r lib; do \
-      [ -e "$lib" ] && install -D "$lib" "/out$lib"; \
+      case "$lib" in \
+        */ld-linux*|*/ld64.so*) continue ;; \
+        /lib/*) dest="/out/usr${lib}" ;; \
+        /lib64/*) dest="/out/usr${lib}" ;; \
+        *) dest="/out${lib}" ;; \
+      esac; \
+      [ -e "$lib" ] && install -D "$lib" "$dest"; \
     done; \
     ln -sf iptables-legacy /out/usr/sbin/iptables; \
     ln -sf ip6tables-legacy /out/usr/sbin/ip6tables
