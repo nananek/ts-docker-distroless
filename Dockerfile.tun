@@ -1,0 +1,88 @@
+# syntax=docker/dockerfile:1.7
+
+# TUN-capable variant. It carries iptables/iproute2 so containerboot can run
+# tailscaled with --tun=tailscale0. The default (userspace) image stays on
+# distroless/static and does not include these binaries.
+
+ARG TAILSCALE_IMAGE
+ARG DISTROLESS_IMAGE=gcr.io/distroless/base-debian13:latest@sha256:f5e95195e998742ff590b7569bae479accce1226e51ae6c3118954030121cdcb
+ARG GOLANG_IMAGE=golang:1.27-alpine
+ARG DEBIAN_IMAGE=debian:trixie-slim
+
+FROM ${TAILSCALE_IMAGE} AS upstream
+
+FROM ${GOLANG_IMAGE} AS sandbox-exec
+ARG TARGETOS
+ARG TARGETARCH
+ARG TARGETVARIANT
+WORKDIR /src
+COPY cmd/sandbox-exec/go.mod cmd/sandbox-exec/go.sum ./
+RUN go mod download
+COPY cmd/sandbox-exec/ ./
+RUN set -eu; \
+    case "${TARGETARCH}" in \
+      arm) export GOARM="${TARGETVARIANT#v}" ;; \
+      *) unset GOARM ;; \
+    esac; \
+    CGO_ENABLED=0 GOOS="${TARGETOS:-linux}" GOARCH="${TARGETARCH}" \
+      go build -trimpath -ldflags="-s -w" -o /out/sandbox-exec .; \
+    mkdir -p /out/rootfs/var/lib/tailscale /out/rootfs/var/run/tailscale
+
+FROM ${DEBIAN_IMAGE} AS netfilter
+ARG TARGETARCH
+RUN set -eux; \
+    apt-get update; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      iptables iproute2 ca-certificates; \
+    rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    mkdir -p /out; \
+    bins="$(command -v iptables) $(command -v ip6tables) \
+          $(command -v iptables-legacy) $(command -v ip6tables-legacy) \
+          $(command -v iptables-nft) $(command -v ip6tables-nft) \
+          $(command -v ip)"; \
+    for bin in $bins; do install -D "$bin" "/out$bin"; done; \
+    for so in /usr/lib/*/xtables/*.so; do \
+      [ -e "$so" ] || continue; \
+      install -D "$so" "/out$so"; \
+    done; \
+    { \
+      for bin in $bins; do ldd "$bin" 2>/dev/null || true; done; \
+      for so in /usr/lib/*/xtables/*.so; do ldd "$so" 2>/dev/null || true; done; \
+    } | awk '/=>/ {print $3} /^\// {print $1}' | sort -u | while read -r lib; do \
+      [ -e "$lib" ] && install -D "$lib" "/out$lib"; \
+    done; \
+    ln -sf iptables-legacy /out/usr/sbin/iptables; \
+    ln -sf ip6tables-legacy /out/usr/sbin/ip6tables
+
+FROM ${DISTROLESS_IMAGE}
+
+ARG TAILSCALE_IMAGE
+ARG DISTROLESS_IMAGE
+
+LABEL org.opencontainers.image.title="tailscale-distroless-tun" \
+      org.opencontainers.image.description="Tailscale nightly on distroless/base with iptables/iproute2 for TUN mode; Tailscale SSH is disabled by seccomp" \
+      org.opencontainers.image.licenses="BSD-3-Clause" \
+      org.opencontainers.image.base.name="${DISTROLESS_IMAGE}" \
+      org.opencontainers.image.version="${TAILSCALE_IMAGE}"
+
+ENV TS_USERSPACE=false \
+    TS_STATE_DIR=/var/lib/tailscale
+
+COPY --from=upstream \
+     /usr/local/bin/tailscale \
+     /usr/local/bin/tailscaled \
+     /usr/local/bin/containerboot \
+     /usr/local/bin/
+
+COPY --from=sandbox-exec /out/sandbox-exec /usr/local/bin/sandbox-exec
+COPY --from=sandbox-exec /out/rootfs/var /var
+COPY --from=netfilter /out/ /
+
+COPY --chown=0:0 seccomp/tailscale.json /etc/tailscale/seccomp.json
+
+USER 0:0
+
+ENTRYPOINT ["/usr/local/bin/sandbox-exec"]
+CMD ["/usr/local/bin/containerboot"]

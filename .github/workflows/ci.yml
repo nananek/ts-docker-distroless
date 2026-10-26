@@ -51,3 +51,19 @@ jobs:
 
       - name: Smoke test
         run: ./scripts/smoke-test.sh ts-distroless:test
+
+      - name: Build TUN
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.tun
+          platforms: linux/amd64
+          load: true
+          tags: ts-distroless-tun:test
+          build-args: |
+            TAILSCALE_IMAGE=ghcr.io/tailscale/tailscale:${{ steps.vars.outputs.tailscale_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: TUN smoke test
+        run: ./scripts/smoke-test-tun.sh ts-distroless-tun:test

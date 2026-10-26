@@ -1,13 +1,14 @@
 # tailscale-distroless
 
-Tailscale の nightly ビルドを `gcr.io/distroless/static` に載せ、
-ghcr.io へ毎日 push するイメージ。
+Tailscale の nightly ビルドを distroless に載せ、ghcr.io へ毎日 push する
+イメージ。userspace 用と TUN 用の 2 種類ある。
 
-- base: `gcr.io/distroless/static` (shell なし)
+- `:nightly` — `gcr.io/distroless/static`、userspace networking、shell なし
+- `:tun` — `gcr.io/distroless/base-debian13` + iptables/iproute2、TUN モード、
+  shell なし
 - Tailscale: 最新の `ghcr.io/tailscale/tailscale:unstable-vX.Y.Z`
 - root で実行する (nonroot 版はない)
 - Tailscale SSH は seccomp で開始できない
-- userspace networking のみ
 
 ## nightly の扱い
 
@@ -16,15 +17,32 @@ Tailscale は `nightly` というタグを publish していない。main から
 遅れることがあるので使わない。
 
 `scripts/latest-unstable-tag.sh` が GHCR のタグを列挙し、`unstable-v*` の最新を返す。
-`Dockerfile` の `TAILSCALE_IMAGE` はデフォルトを持たない。`make image` と nightly
+Dockerfile は `TAILSCALE_IMAGE` のデフォルトを持たない。`make image` と nightly
 workflow が必ずタグを渡すので、固定バージョンに落ちることはない。
 
-nightly workflow は毎日 03:17 UTC に走り、次のタグを push する。
+nightly workflow は毎日 03:17 UTC に走り、userspace と TUN の両方を push する。
 
-- `nightly`
-- `nightly-YYYYMMDD`
-- `unstable-vX.Y.Z`
-- `sha-xxxxxxx`
+- userspace: `nightly`, `nightly-YYYYMMDD`, `unstable-vX.Y.Z`, `sha-xxxxxxx`
+- TUN: `tun`, `tun-nightly-YYYYMMDD`, `tun-unstable-vX.Y.Z`, `tun-sha-xxxxxxx`
+
+## TUN 版 (`:tun`)
+
+`Dockerfile.tun` は `gcr.io/distroless/base-debian13` に iptables/iproute2 と
+必要な共有ライブラリを足したもの。`TS_USERSPACE=false` が既定で、
+`/dev/net/tun` と `NET_ADMIN` / `NET_RAW` が必要。
+
+```bash
+docker run -d --name tailscale \
+  --cap-add=NET_ADMIN --cap-add=NET_RAW \
+  --device /dev/net/tun \
+  -v tailscale-state:/var/lib/tailscale \
+  -e TS_AUTHKEY=tskey-auth-... \
+  ghcr.io/OWNER/ts-docker-distroless:tun
+```
+
+userspace 版では `hc` や `openwebui` のようにアプリが tailnet へ outbound
+接続する構成が動かない。その用途は `:tun` を使う。`:tun` も `sandbox-exec` を
+通るので Tailscale SSH は無効のまま。
 
 ## なぜ root か
 
@@ -104,12 +122,13 @@ Compose は `compose.yaml` を参照。アプリを sidecar にする場合は�
 
 そのまま置き換えられないもの:
 
-- `TS_USERSPACE=false` の TUN/kernel モード。distroless に iptables/iproute2 が
-  ないため、netfilter 設定ができない。
+- `TS_USERSPACE=false` の TUN/kernel モードは `:nightly` では動かない。
+  iptables/iproute2 が無いため。TUN は `:tun` を使う。
+  `:tun` でも `/dev/net/tun` を前提にする subnet router / exit node 構成は
+  `NET_ADMIN` / `NET_RAW` とカーネル側の設定が別途必要。
 - `docker exec ... sh -c ...`。shell がない。`docker exec ... tailscale status`
   のようにバイナリを直接指定する。
 - `tailscale ssh`。意図的に無効化している。
-- `/dev/net/tun` を前提にする subnet router / exit node 構成。
 
 コマンドの上書きは公式と同じように動く。`docker run IMAGE tailscale version` や
 `docker run IMAGE tailscaled --tun=userspace-networking ...` は `sandbox-exec`
@@ -118,8 +137,10 @@ Compose は `compose.yaml` を参照。アプリを sidecar にする場合は�
 ## ビルド
 
 ```bash
-make image          # 最新の unstable-v* を解決して build
-make test           # build + smoke test
+make image          # userspace 版を build
+make test           # userspace 版の build + smoke test
+make image-tun      # TUN 版を build
+make test-tun       # TUN 版の build + smoke test
 make check          # seccomp と Go の静的チェック
 ```
 
@@ -129,6 +150,10 @@ make check          # seccomp と Go の静的チェック
 docker build \
   --build-arg TAILSCALE_IMAGE=ghcr.io/tailscale/tailscale:$(./scripts/latest-unstable-tag.sh) \
   -t ts-docker-distroless:dev .
+
+docker build -f Dockerfile.tun \
+  --build-arg TAILSCALE_IMAGE=ghcr.io/tailscale/tailscale:$(./scripts/latest-unstable-tag.sh) \
+  -t ts-docker-distroless:tun .
 ```
 
 バージョンを固定したい場合だけ、明示的に渡す。
@@ -140,8 +165,9 @@ TAILSCALE_TAG=unstable-v1.105.99 make image
 
 ## 制限
 
-- userspace networking のみ。`TS_USERSPACE=false` は非対応。distroless に
-  iptables/iproute2 がなく、TUN モードの netfilter 設定ができない。
+- `:nightly` は userspace networking のみ。`TS_USERSPACE=false` は非対応。
+  distroless/static に iptables/iproute2 がないため。
+- TUN モードは `:tun` を使う。`/dev/net/tun`、`NET_ADMIN`、`NET_RAW` が必要。
 - root のみ。
 - shell なし。`docker exec` では実行ファイルのパスを指定する。
 - 低ポートを待ち受けるには `NET_BIND_SERVICE` が要る。
@@ -161,7 +187,8 @@ TAILSCALE_TAG=unstable-v1.105.99 make image
 
 ## CI
 
-- `.github/workflows/ci.yml`: seccomp の検証、`go vet`、イメージ build、
-  probe による seccomp の実効性確認、tailscaled の起動確認。
-- `.github/workflows/nightly.yml`: linux/amd64、linux/arm64、linux/arm/v7 を
-  build し、provenance と SBOM 付きで ghcr.io へ push する。
+- `.github/workflows/ci.yml`: seccomp の検証、`go vet`、userspace/TUN 両方の
+  イメージ build、probe と TUN smoke test。
+- `.github/workflows/nightly.yml`: linux/amd64、linux/arm64、linux/arm/v7 の
+  userspace 版と TUN 版を build し、provenance と SBOM 付きで ghcr.io へ push
+  する。

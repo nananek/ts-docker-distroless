@@ -62,6 +62,22 @@ jobs:
             org.opencontainers.image.version=${{ steps.vars.outputs.tailscale_tag }}
             org.opencontainers.image.licenses=BSD-3-Clause
 
+      - name: Metadata (TUN)
+        id: meta-tun
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.vars.outputs.image }}
+          tags: |
+            type=raw,value=tun
+            type=raw,value=tun-nightly-{{date 'YYYYMMDD'}}
+            type=raw,value=tun-${{ steps.vars.outputs.tailscale_tag }}
+            type=sha,prefix=tun-sha-,format=short
+          labels: |
+            org.opencontainers.image.title=tailscale-distroless-tun
+            org.opencontainers.image.description=Tailscale nightly on distroless/base with iptables/iproute2 for TUN mode; Tailscale SSH is disabled by seccomp
+            org.opencontainers.image.version=${{ steps.vars.outputs.tailscale_tag }}
+            org.opencontainers.image.licenses=BSD-3-Clause
+
       - name: Build amd64 for smoke test
         uses: docker/build-push-action@v6
         with:
@@ -76,6 +92,22 @@ jobs:
 
       - name: Smoke test
         run: ./scripts/smoke-test.sh ts-distroless:nightly-smoke
+
+      - name: Build TUN amd64 for smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.tun
+          platforms: linux/amd64
+          load: true
+          tags: ts-distroless-tun:nightly-smoke
+          build-args: |
+            TAILSCALE_IMAGE=ghcr.io/tailscale/tailscale:${{ steps.vars.outputs.tailscale_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: TUN smoke test
+        run: ./scripts/smoke-test-tun.sh ts-distroless-tun:nightly-smoke
 
       - name: Build and push
         id: build
@@ -93,6 +125,23 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Build and push TUN
+        id: build-tun
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.tun
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: true
+          tags: ${{ steps.meta-tun.outputs.tags }}
+          labels: ${{ steps.meta-tun.outputs.labels }}
+          build-args: |
+            TAILSCALE_IMAGE=ghcr.io/tailscale/tailscale:${{ steps.vars.outputs.tailscale_tag }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       - name: Summary
         run: |
           {
@@ -103,5 +152,10 @@ jobs:
             echo "- Tags:"
             echo '```'
             echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+            echo "- TUN digest: \`${{ steps.build-tun.outputs.digest }}\`"
+            echo "- TUN tags:"
+            echo '```'
+            echo "${{ steps.meta-tun.outputs.tags }}"
             echo '```'
           } >>"$GITHUB_STEP_SUMMARY"
