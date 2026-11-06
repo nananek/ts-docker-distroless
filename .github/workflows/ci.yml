@@ -12,9 +12,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: cmd/sandbox-exec/go.mod
           cache-dependency-path: cmd/sandbox-exec/go.sum
@@ -35,10 +35,10 @@ jobs:
           tag="$(./scripts/latest-unstable-tag.sh)"
           echo "tailscale_tag=$tag" >>"$GITHUB_OUTPUT"
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - name: Build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64
@@ -53,7 +53,7 @@ jobs:
         run: ./scripts/smoke-test.sh ts-distroless:test
 
       - name: Build TUN
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.tun
