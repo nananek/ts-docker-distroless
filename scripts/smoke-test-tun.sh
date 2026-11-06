@@ -15,6 +15,8 @@ trap cleanup EXIT
 
 echo "==> netfilter binaries"
 docker run --rm --entrypoint /usr/sbin/iptables "$image" -V
+docker run --rm --entrypoint /usr/sbin/iptables-nft "$image" -V
+docker run --rm --entrypoint /usr/sbin/iptables-legacy "$image" -V
 docker run --rm --entrypoint /usr/sbin/ip "$image" -V
 
 echo "==> no shell"
@@ -58,7 +60,31 @@ for _ in $(seq 1 30); do
 done
 
 docker exec "$container" /usr/sbin/ip link show tailscale0
-docker exec "$container" /usr/sbin/iptables -t nat -L -n >/dev/null
+
+# The two netfilter backends need different things from the host kernel. The
+# legacy (xtables) nat table is a kernel module that only the host can load --
+# a container has no modprobe -- so on a host that has never used legacy
+# iptables (e.g. a Docker host on the nft backend) it may be absent. The nft
+# backend uses the nf_tables subsystem those hosts do have. tailscaled picks a
+# backend at runtime, so the image only has to be able to program the nat table
+# through at least one of them.
+nat_backend=""
+nat_error="$(mktemp)"
+for backend in iptables-nft iptables-legacy; do
+  if docker exec "$container" "/usr/sbin/$backend" -t nat -L -n >/dev/null 2>"$nat_error"; then
+    echo "nat table: $backend"
+    nat_backend="$backend"
+    break
+  fi
+done
+rm -f "$nat_error"
+if [[ -z "$nat_backend" ]]; then
+  echo "neither iptables-nft nor iptables-legacy can list the nat table" >&2
+  docker exec "$container" /usr/sbin/iptables-nft -t nat -L -n >&2 || true
+  docker exec "$container" /usr/sbin/iptables-legacy -t nat -L -n >&2 || true
+  exit 1
+fi
+
 docker exec "$container" /usr/local/bin/tailscale --socket=/tmp/tailscaled.sock status >/dev/null 2>&1 || true
 
 echo "TUN smoke test OK"

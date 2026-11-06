@@ -44,6 +44,13 @@ userspace 版では `hc` や `openwebui` のようにアプリが tailnet へ ou
 接続する構成が動かない。その用途は `:tun` を使う。`:tun` も `sandbox-exec` を
 通るので Tailscale SSH は無効のまま。
 
+イメージには iptables の両バックエンド (`iptables-nft` / `iptables-legacy`) が
+入っていて、`iptables` は legacy を指す。legacy の nat テーブルはカーネル
+モジュール (`iptable_nat`) で、コンテナ内からは modprobe できない。legacy を
+使ったことのないホスト (Docker が nft バックエンドの環境) では legacy の nat が
+引けないので、そういうホストでは tailscaled は nftables 側を使う。smoke test も
+どちらか一方で nat テーブルを引ければ通す。
+
 ## なぜ root か
 
 tailscaled は state と local API socket を root で所有し、ネットワーク設定も
